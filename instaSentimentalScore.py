@@ -112,7 +112,8 @@ else:
     exit()
     
 # p-2+IBUPzgoeLjgBztO/lLZHHg==;TAq/ujHl/IiSpnDt3iCIBA==:XBiA2TCiUDDouougZKeuiQHPVdUKlAprRkzmg7H5BjoxEt2NjU6IO1voLKcaoQsorWBGt6xRYRsN76DyJw6wpPMI6i4b+0+vXg==
-api_url = "https://bam-api.res.ibm.com/v2/text/generation?version=2024-01-10"
+#api_url = "https://bam-api.res.ibm.com/v2/text/generation?version=2024-01-10"
+api_url = "https://us-south.ml.cloud.ibm.com/ml/v1-beta/generation/text?version=2023-05-29"
 
 if not ibmai_credentials:
     print("watsonx.ai credentials not provided.")
@@ -171,11 +172,48 @@ COMMENT:{comment}
 """
 
 creds = Credentials(ibmai_key, api_endpoint=api_url) # credentials object to access the LLM service
+ibmai_key = Credentials(ibmai_key) # credentials object to access the LLM service
 # define model type
-# MODELTYPE = "ibm/granite-13b-chat-v2"
-# MODELTYPE = "ibm/granite-13b-sft"
-MODELTYPE = "meta-llama/llama-2-70b-chat"
+# ibmai_model = "ibm/granite-13b-chat-v2"
+# ibmai_model = "ibm/granite-13b-sft"
+ibmai_model = "google/flan-ul2"
 
+body = {
+	"parameters": {
+		"decoding_method": "greedy",
+		"max_new_tokens": 100,
+		"repetition_penalty": 1
+	},
+	"model_id": "google/flan-ul2",
+	"project_id": "02bda241-22a8-4de2-b8bc-fe2ae420c44e",
+	"moderations": {
+		"hap": {
+			"input": true,
+			"output": true,
+			"threshold": 0.5,
+			"mask": {
+				"remove_entity_value": true
+			}
+		}
+	}
+}
+
+headers = {
+	"Accept": "application/json",
+	"Content-Type": "application/json",
+	"Authorization": "Bearer {ibmai_key}"
+}
+
+response = requests.post(
+	url,
+	headers=headers,
+	json=body
+)
+
+if response.status_code != 200:
+	raise Exception("Non-200 response: " + str(response.text))
+
+data = response.json()
 
 # Instantiate parameters for text generation
 params = GenerateParams(
@@ -189,8 +227,9 @@ params = GenerateParams(
     top_p=1,
 )
 
+
 # Instantiate a model proxy object to send your requests
-model = Model(MODELTYPE, params=params, credentials=creds)
+model = Model(ibmai_model, params=params, credentials=creds)
 
 # a helper function to generate text
 def get_completion(prompt, model=model):
@@ -236,8 +275,8 @@ def fetch_comments():
         SELECT c.comment_text, p.topic
         FROM comments AS c
         JOIN posts AS p ON c.post_shortcode = p.post_shortcode
-        WHERE CHAR_LENGTH(c.comment_text) > 20
-        LIMIT 10;
+        WHERE CHAR_LENGTH(c.comment_text) > 20 AND CHAR_LENGTH(c.comment_text) < 35
+        LIMIT 30;
         """)
         return cursor.fetchall()
     

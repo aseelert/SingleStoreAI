@@ -20,11 +20,12 @@ parser = argparse.ArgumentParser(description='Download Instagram posts and comme
 parser.add_argument('--user', type=str, help='Instagram username')
 parser.add_argument('--password', type=str, help='Instagram password')
 parser.add_argument('--master-password', type=str, help='Master password for the credential store')
-parser.add_argument('--topic', type=str, help='Instagram channel name', required=True)
-parser.add_argument('--posts', '-p', type=int, help='Number of posts to download', default=4)
-parser.add_argument('--comments', '-c', type=int, help='Number of comments to fetch per post', default=100)
-
+parser.add_argument('--topic', '-t', type=str, help='Instagram channel name', required=True)
+parser.add_argument('--posts', '-p', type=int, help='Number of posts to download', default=2)
+parser.add_argument('--comments', '-c', type=int, help='Number of comments to fetch per post', default=40)
+parser.add_argument('--skip_download', action='store_true', help='do not download instagram post and comments, only create vectors and store it into singlestore', required=False)
 args = parser.parse_args()
+
 
 SALT_FILE = 'salt.key'
 CREDENTIALS_FILE = 'credentials.enc'
@@ -116,7 +117,7 @@ def insert_into_singlestore(posts, comments, media, singlestore_credentials):
         print("SingleStore credentials not provided. Skipping database operations.")
         return
     else:
-        print("SingleStore credentials provided.")
+        print("SingleStore credentials provided. Starting import now.")
 
     ssl_config = {'ca': 'singlestore_bundle.pem'}
 
@@ -239,49 +240,54 @@ for post in profile.get_posts():
     comment_data = []
     media_data = []
 
-    # Download the post only if the directory doesn't exist
-    if not os.path.exists(post_dir):
-        L.download_post(post, target=args.topic)
-
-        # Read the metadata from the text file
-        txt_files = [f for f in os.listdir(post_dir) if f.endswith('.txt')]
-        meta_text = ''
-        if txt_files:
-            with open(os.path.join(post_dir, txt_files[0]), 'r') as file:
-                meta_text = file.read()
-
-        post_data.append((args.topic, post.shortcode, post.url, post.date_utc.isoformat(), meta_text))
-
-        # Fetch and save comments
-        for comment in post.get_comments():
-            text = comment.text
-            vector = generate_embeddings(text)
-            if vector is not None:
-                comment_data.append((post.shortcode, comment.owner.username, text, comment.created_at_utc.isoformat(), vector))
-
-            # Append comment information for JSON file
-            comments_json = {
-                "username": comment.owner.username,
-                "text": text,
-                "created_at_utc": comment.created_at_utc.isoformat()
-            }
-            if len(comment_data) >= args.comments:
-                break
-
-        # Handle media files
-        for file in os.listdir(post_dir):
-            if file.endswith('.jpg') or file.endswith('.mp4'):
-                media_path = os.path.join(post_dir, file)
-                media_binary = read_media_as_binary(media_path)
-                media_type = 'image' if file.endswith('.jpg') else 'video'
-                media_data.append((post.shortcode, media_binary, media_type))
-
-        # Save comments to JSON
-        with open(os.path.join(post_dir, 'comments.json'), 'w') as f:
-            json.dump(comments_json, f, indent=4)
-            
-        # Call the insert_into_singlestore function to insert data into the database
-        insert_into_singlestore(post_data, comment_data, media_data, singlestore_credentials)
+    # Example if clause using the --skip_download value
+    if args.skip_download:
+        print("Skipping download...")
     else:
-        print(f"Directory for post {post_dir} already exists. Skipping download.")
+        if os.path.exists(post_dir):
+            print(f"Directory {post_dir} already exists. Skipping download...")
+        else:
+            print("Downloading Instagram posts and comments...")
+            L.download_post(post, target=args.topic)
+
+    # Read the metadata from the text file
+    txt_files = [f for f in os.listdir(post_dir) if f.endswith('.txt')]
+    meta_text = ''
+    if txt_files:
+        with open(os.path.join(post_dir, txt_files[0]), 'r') as file:
+            meta_text = file.read()
+
+    post_data.append((args.topic, post.shortcode, post.url, post.date_utc.isoformat(), meta_text))
+
+    # Fetch and save comments
+    for comment in post.get_comments():
+        text = comment.text
+        vector = generate_embeddings(text)
+        if vector is not None:
+            comment_data.append((post.shortcode, comment.owner.username, text, comment.created_at_utc.isoformat(), vector))
+
+        # Append comment information for JSON file
+        comments_json = {
+            "username": comment.owner.username,
+            "text": text,
+            "created_at_utc": comment.created_at_utc.isoformat()
+        }
+        if len(comment_data) >= args.comments:
+            break
+
+    # Handle media files
+    for file in os.listdir(post_dir):
+        if file.endswith('.jpg') or file.endswith('.mp4'):
+            media_path = os.path.join(post_dir, file)
+            media_binary = read_media_as_binary(media_path)
+            media_type = 'image' if file.endswith('.jpg') else 'video'
+            media_data.append((post.shortcode, media_binary, media_type))
+
+    # Save comments to JSON
+    with open(os.path.join(post_dir, 'comments.json'), 'w') as f:
+        json.dump(comments_json, f, indent=4)
+        
+    # Call the insert_into_singlestore function to insert data into the database
+    insert_into_singlestore(post_data, comment_data, media_data, singlestore_credentials)
+
     args.posts -= 1

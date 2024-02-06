@@ -197,7 +197,7 @@ while True:
     clear_screen()  # Clear the screen before each interaction
     print("Choose an option:")
     print("1. Search for comments")
-    print("2. Get Top s")
+    print("2. Get Top brand")
     print("3. Exit")
     
     option = input("Enter your choice (1/2/3): ")
