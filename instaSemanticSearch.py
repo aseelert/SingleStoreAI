@@ -31,13 +31,6 @@ master_key = None
 openai_credentials = {}
 singlestore_credentials = {}
 
-def clear_screen():
-    """Clear the terminal screen based on the operating system."""
-    if platform.system() == 'Windows':
-        os.system('cls')  # For Windows
-    else:
-        os.system('clear')  # For Linux/Unix
-
 def get_salt():
     """Retrieve or generate a salt for key derivation."""
     if os.path.exists(SALT_FILE):
@@ -48,7 +41,7 @@ def get_salt():
         with open(SALT_FILE, 'wb') as file:
             file.write(salt)
         return salt
-
+        
 def derive_key(password: str, salt: bytes) -> bytes:
     """Derive a key from a password and salt."""
     kdf = PBKDF2HMAC(
@@ -74,6 +67,13 @@ def get_credentials(master_key, service_type):
         print(f"Error retrieving credentials for {service_type}: {e}")
         return {}
 
+def clear_screen():
+    """Clear the terminal screen based on the operating system."""
+    if platform.system() == 'Windows':
+        os.system('cls')  # For Windows
+    else:
+        os.system('clear')  # For Linux/Unix
+
 # Custom function to truncate or insert line breaks
 def format_text(text, max_length=200):
     return text if len(text) <= max_length else text[:max_length] + '...'
@@ -92,12 +92,31 @@ def get_embeddings(text):
 
 # Retrieve master password and derive master key
 if credentials_exist:
+        # Retrieve master password
     if args.master_password:
         master_password = args.master_password
     else:
         master_password = getpass.getpass("Enter master password: ")
     salt = get_salt()
     master_key = derive_key(master_password, salt)
+
+    # Load OpenAI and SingleStore credentials from encrypted file
+    openai_credentials = get_credentials(master_key, 'openai')
+    singlestore_credentials = get_credentials(master_key, 'singlestore')
+
+    # Set OpenAI API key
+    openai.api_key = openai_credentials.get('api_key')
+
+    # Display SingleStore credentials if retrieved
+    if singlestore_credentials:
+        print(f"SingleStore Host: {singlestore_credentials.get('hostname')}, "
+              f"Port: {singlestore_credentials.get('port')}, "
+              f"Database: {singlestore_credentials.get('database')}")
+    else:
+        print("Unable to retrieve SingleStore credentials.")
+else:
+    print("Credential files not found. Exiting.")
+    exit(1)
 
 # Get OpenAI and SingleStore credentials from the encrypted file
 openai_credentials = get_credentials(master_key, 'openai')
