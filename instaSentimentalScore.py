@@ -1,3 +1,4 @@
+#!/home/watsonx/miniconda3/bin/python3
 import os
 import json
 import base64
@@ -20,17 +21,17 @@ import re
 import csv
 import datetime
 from langchain.prompts import PromptTemplate
-from genai.credentials import Credentials
+#from genai.credentials import Credentials
 from dotenv import load_dotenv
 # Using Generative AI Library
-from genai.model import Model
-from genai.schemas import GenerateParams
+#from genai.model import Model
+#from genai.schemas import GenerateParams
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 # Suppress all warnings
 import warnings
-import seaborn as sns
-from wordcloud import WordCloud
+#import seaborn as sns
+#from wordcloud import WordCloud
 
 
 

@@ -13,6 +13,10 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
 import platform  # Import platform module to clear the screen
+from sentence_transformers import SentenceTransformer
+
+# Load the model
+model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 
 
 # Set up argument parser
@@ -75,20 +79,26 @@ def clear_screen():
         os.system('clear')  # For Linux/Unix
 
 # Custom function to truncate or insert line breaks
-def format_text(text, max_length=200):
+def format_text(text, max_length=100):
     return text if len(text) <= max_length else text[:max_length] + '...'
 
 # Apply the function to your DataFrame
 def format_dataframe(df):
     for col in df.columns:
         if df[col].dtype == object:  # Apply only to string columns
-            df[col] = df[col].apply(lambda x: format_text(x, 200))
+            df[col] = df[col].apply(lambda x: format_text(x, 100))
     return df
 
 # Function to get embeddings using OpenAI
 def get_embeddings(text):
     response = openai.Embedding.create(input=[text], engine="text-embedding-ada-002")
     return response['data'][0]['embedding']
+
+# Function to get embeddings using sentence-transformers (MiniLM)
+def get_minilm_embeddings(text):
+    # Generate embeddings
+    embeddings = model.encode(text, convert_to_numpy=True)
+    return embeddings.tolist()  # Convert numpy array to list for compatibility
 
 # Retrieve master password and derive master key
 if credentials_exist:
@@ -151,12 +161,13 @@ else:
         
 # Function to fetch top 5 results grouped by topic
 def fetch_top__results_grouped_by_topic(search_string):
-    search_embedding = json.dumps(get_embeddings(search_string))
+    search_embedding_openai = json.dumps(get_embeddings(search_string))
+    #search_embedding_minilm = json.dumps(get_minilm_embeddings(search_string))
     
     query = f"""
     SELECT
         a.topic,
-        SUM(DOT_PRODUCT(c.comment_vector, JSON_ARRAY_PACK('{search_embedding}'))) / COUNT(c.comment_text) AS average_score_per_comment,
+        SUM(DOT_PRODUCT(c.comment_vector, JSON_ARRAY_PACK('{search_embedding_openai}'))) / COUNT(c.comment_text) AS average_score_per_comment,
         COUNT(DISTINCT c.comment_text) AS distinct_comment_count,
         COUNT(DISTINCT a.post_shortcode) AS distinct_post_count
     FROM
@@ -183,19 +194,21 @@ def fetch_top__results_grouped_by_topic(search_string):
 
 # Function to fetch results based on search string
 def fetch_results(search_string):
-    search_embedding = json.dumps(get_embeddings(search_string))
+    search_embedding_openai = json.dumps(get_embeddings(search_string))
+    search_embedding_minilm = json.dumps(get_minilm_embeddings(search_string))
 
     query = f"""
     SELECT
         a.topic,
         c.comment_text,
-        DOT_PRODUCT(c.comment_vector, JSON_ARRAY_PACK('{search_embedding}')) AS score,
+        DOT_PRODUCT(c.comment_vector, JSON_ARRAY_PACK('{search_embedding_openai}')) AS openai_score,
+        DOT_PRODUCT(c.minilm_vector, JSON_ARRAY_PACK('{search_embedding_minilm}')) AS minilm_score,
         c.post_shortcode
     FROM
         comments c
     JOIN
         posts a ON c.post_shortcode = a.post_shortcode
-    ORDER BY score DESC
+    ORDER BY openai_score DESC
     LIMIT 30;
     """
 
@@ -205,7 +218,7 @@ def fetch_results(search_string):
         results = cursor.fetchall()
 
         # Convert results to DataFrame
-        df = pd.DataFrame(results, columns=['Topic', 'Comment Text', 'Score', 'Post Shortcode'])
+        df = pd.DataFrame(results, columns=['Topic', 'Comment Text', 'openai_score','minilm_score', 'Post Shortcode'])
         return df
     except Exception as e:
         print(f"Error executing query: {e}")

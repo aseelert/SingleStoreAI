@@ -12,6 +12,10 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
+from sentence_transformers import SentenceTransformer
+
+# Load the model
+minilm_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 
 # Generate a key for encryption
 key = Fernet.generate_key()
@@ -74,6 +78,12 @@ def get_credentials(master_key, service_type):
         print(f"Error retrieving credentials for {service_type}: {e}")
         return {}
 
+
+def generate_minilm_embeddings(text):
+    # Generate embeddings
+    embeddings = minilm_model.encode(text, convert_to_tensor=False)
+    return embeddings.tolist()  # Convert PyTorch tensor to list if necessary
+
 # Load OpenAI API key from environment variables
 #openai.api_key = os.getenv('OPENAI_API_KEY')
 
@@ -110,7 +120,10 @@ def get_instagram_credentials(master_key):
     except Exception as e:
         print(f"Error retrieving credentials: {e}")
         return {'username': None, 'password': None}
-    
+
+def snip_text_to_max_length(text, max_length=1250):
+    return text[:max_length]
+
 # Function to insert data into SingleStoreDB
 def insert_into_singlestore(posts, comments, media, singlestore_credentials):
     if not singlestore_credentials:
@@ -149,16 +162,18 @@ def insert_into_singlestore(posts, comments, media, singlestore_credentials):
                     cursor.execute(post_sql, post)
 
                 for comment in comments:
-                    # Assuming 'comment' is a tuple like: (post_shortcode, username, text, timestamp, vector_json)
                     comment_text = json.dumps(comment[2])
-                    #escaped_comment_text = comment_text #.replace('\n', '\\n') # Escape single quotes within comment_text
                     vector_json = json.dumps(comment[4])  # Convert the vector to a JSON string
+                    minilm_vector_json = json.dumps(comment[5])  # MiniLM embeddings as JSON
+
+                    # Update the SQL query to insert the new MiniLM vector
                     comment_sql = f"""
-                    INSERT INTO comments (post_shortcode, comment_username, comment_text, comment_timestamp, comment_vector)
-                    VALUES ('{comment[0]}', '{comment[1]}', '{comment[2].replace("'", "''")}', '{comment[3]}', JSON_ARRAY_PACK('{vector_json}'))
+                    INSERT INTO comments (post_shortcode, comment_username, comment_text, comment_timestamp, comment_vector, minilm_vector)
+                    VALUES ('{comment[0]}', '{comment[1]}', '{comment[2].replace("'", "''")}', '{comment[3]}', JSON_ARRAY_PACK('{vector_json}'), JSON_ARRAY_PACK('{minilm_vector_json}'))
                     """
-                    print(f"Executing: {comment_sql}")
+                    #print(f"Executing: {comment_sql}")
                     cursor.execute(comment_sql)
+
 
                 # Insert media
                 media_sql = "INSERT INTO media (post_shortcode, media_file, media_type) VALUES (%s, %s, %s)"
@@ -223,17 +238,31 @@ except instaloader.exceptions.ConnectionException as e:
     print(f"Failed to log in to Instagram: {e}")
     exit(1)
 
-
-# Load the profile
-profile = instaloader.Profile.from_username(L.context, args.topic)
+# Example if clause using the --skip_download value
+if args.skip_download:
+    print("skipping topic connection...")
+    # Generate list of shortcodes from subdirectories
+    posts = [subdir for subdir in next(os.walk(args.topic))[1]]
+    print(posts)
+else:
+    # Load the profile
+    profile = instaloader.Profile.from_username(L.context, args.topic)
+    posts = profile.get_posts()
 
 # Inside the loop where you process posts
-for post in profile.get_posts():
+for post in posts:
     if args.posts <= 0:
         break
-
+    # Check the type of 'post' to determine how to access the shortcode
+    if isinstance(post, str):
+        # When posts are just shortcodes (string), use directly
+        shortcode = post
+    else:
+        # When posts are Instaloader Post objects, access the shortcode attribute
+        shortcode = post.shortcode
+        
     # Define the directory for this specific post
-    post_dir = os.path.join(args.topic, post.shortcode)
+    post_dir = os.path.join(args.topic, shortcode)
 
     # Initialize data for insertion
     post_data = []
@@ -256,15 +285,19 @@ for post in profile.get_posts():
     if txt_files:
         with open(os.path.join(post_dir, txt_files[0]), 'r') as file:
             meta_text = file.read()
-
-    post_data.append((args.topic, post.shortcode, post.url, post.date_utc.isoformat(), meta_text))
+    meta_text=snip_text_to_max_length(meta_text)
+    post_data.append((args.topic, shortcode, post.url, post.date_utc.isoformat(), meta_text))
 
     # Fetch and save comments
     for comment in post.get_comments():
         text = comment.text
-        vector = generate_embeddings(text)
-        if vector is not None:
-            comment_data.append((post.shortcode, comment.owner.username, text, comment.created_at_utc.isoformat(), vector))
+        #vector = generate_embeddings(text)
+        print(f"Generate OpenAI embeddings .... {text} ")
+        openai_vector = generate_embeddings(text)  # Existing function for OpenAI embeddings
+        print(f"Generate MiniLM embeddings .... {text}")
+        minilm_vector = generate_minilm_embeddings(text)  # New function for MiniLM embedding
+        if openai_vector is not None:
+            comment_data.append((shortcode, comment.owner.username, text, comment.created_at_utc.isoformat(), openai_vector, minilm_vector))
 
         # Append comment information for JSON file
         comments_json = {
@@ -281,7 +314,7 @@ for post in profile.get_posts():
             media_path = os.path.join(post_dir, file)
             media_binary = read_media_as_binary(media_path)
             media_type = 'image' if file.endswith('.jpg') else 'video'
-            media_data.append((post.shortcode, media_binary, media_type))
+            media_data.append((shortcode, media_binary, media_type))
 
     # Save comments to JSON
     with open(os.path.join(post_dir, 'comments.json'), 'w') as f:
