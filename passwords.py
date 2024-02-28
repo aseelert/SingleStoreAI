@@ -76,19 +76,17 @@ def main():
                 username = input("Enter username for SingleStore: ")
                 password = getpass.getpass("Enter password for SingleStore: ")
                 credentials[args.type] = {'hostname': hostname, 'port': port, 'database': database, 'username': username, 'password': password}
-            elif args.type == ['openai']:
-                api_key = getpass.getpass(f"Enter API key for {args.type}: ")
+            elif args.type == 'openai':
+                api_key = getpass.getpass(f"Enter OpenAI API key for {args.type}: ")
                 credentials[args.type] = {'api_key': api_key}
-            elif args.type == ['ibmai']:
-                watsonxai_ibmai_iamkey = getpass.getpass(f"Enter watsonx.ai IAM API Key:")
-                credentials[args.type] = {'watsonxai_ibmai_iamkey': watsonxai_ibmai_iamkey}                
-                watsonxai_project_id = getpass.getpass(f"Enter watsonx.ai Project ID: ")
-                credentials[args.type] = {'watsonxai_project_id': watsonxai_project_id}
-                credentials[args.type] = {'watsonxai_user_apiKey': "apiKey"}                  
-            else:
-                username = input(f"Enter username for {args.type}: ")
-                password = getpass.getpass(f"Enter password for {args.type}: ")
-                credentials[args.type] = {'username': username, 'password': password}
+            elif args.type == 'ibmai':
+                watsonxkey = getpass.getpass("Enter watsonx.ai IAM API Key: ")           
+                watsonxprojectid = getpass.getpass("Enter watsonx.ai Project ID: ")
+                credentials[args.type] = {'watsonxai_ibmai_iamkey': watsonxkey, 'watsonxai_project_id': watsonxprojectid, 'watsonxai_user_apiKey': "apiKey"}                 
+#            else:
+#                username = input(f"Enter username for {args.type}: ")
+#                password = getpass.getpass(f"Enter password for {args.type}: ")
+#                credentials[args.type] = {'username': username, 'password': password}
 
             write_encrypted_data(json.dumps(credentials), master_key)
             print(f"Credentials for {args.type} created.")
@@ -96,15 +94,24 @@ def main():
         elif args.getpass and args.type:
             if args.type in credentials:
                 credential = credentials[args.type]
-                if 'api_key' in credential:
-                    print(f"API Key: {credential['api_key']}")
-                else:
+                if args.type == 'openai':
+                    if 'api_key' in credential:
+                        print(f"API Key: {credential['api_key']}")
+                if args.type == 'ibmai':
+                    print(f"IAM API Key: {credential.get('watsonxai_ibmai_iamkey', '')}")
+                    print(f"Project ID: {credential.get('watsonxai_project_id', '')}")
+    #                if 'watsonxai_user_apiKey' in credential:
+    #                    print(f"User API Key: {credential['watsonxai_user_apiKey']}")
+                if args.type == 'singlestore':
+                    print(f"Hostname: {credential.get('hostname', '')}")
+                    print(f"Port: {credential.get('port', '')}")
+                    print(f"Database: {credential.get('database', '')}")
                     print(f"Username: {credential.get('username', '')}")
                     print(f"Password: {credential.get('password', '')}")
-                    if args.type == 'singlestore':
-                        print(f"Hostname: {credential.get('hostname', '')}")
-                        print(f"Port: {credential.get('port', '')}")
-                        print(f"Database: {credential.get('database', '')}")
+#                else:
+#                    print(f"Username: {credential.get('username', '')}")
+#                    print(f"Password: {credential.get('password', '')}")
+
             else:
                 print(f"No credentials found for {args.type}")
 

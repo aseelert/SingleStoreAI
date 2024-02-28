@@ -13,38 +13,24 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.fernet import Fernet
 from tabulate import tabulate
-from ibm_watson import NaturalLanguageUnderstandingV1
-from ibm_watson.natural_language_understanding_v1 import Features, SentimentOptions
 from textblob import TextBlob
 import nltk
-import re
-import csv
-import datetime
 from langchain.prompts import PromptTemplate
-#from genai.credentials import Credentials
-from dotenv import load_dotenv
-# Using Generative AI Library
-#from genai.model import Model
-#from genai.schemas import GenerateParams
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-# Suppress all warnings
-import warnings
-#import seaborn as sns
-#from wordcloud import WordCloud
-from langchain.prompts import PromptTemplate
-import os
 from dotenv import load_dotenv
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 from ibm_watsonx_ai.foundation_models.utils.enums import ModelTypes
-
-
-
+from ibm_watsonx_ai.foundation_models import Model
+from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as GenParams
+from ibm_watsonx_ai.foundation_models.utils.enums import ModelTypes, DecodingMethods
+from tqdm import tqdm 
 
 nltk.download('punkt')
 
+comment_limit = "30"
 
+ibmaillm = "FLAN_UL2"
+model_id = getattr(ModelTypes, ibmaillm)
 
 
 # Argument Parsing
@@ -107,97 +93,100 @@ def get_credentials(master_key, service_type):
         return {}
 
 # Credential Retrieval and Connection Setup
-if os.path.exists(CREDENTIALS_FILE) and os.path.exists(SALT_FILE):
-    master_password = args.master_password or getpass("Enter master password: ")
-    salt = get_salt()
-    master_key = derive_key(master_password, salt)
-    openai_credentials = get_credentials(master_key, 'openai')
-    ibmai_credentials = get_credentials(master_key, 'ibmai')
-    singlestore_credentials = get_credentials(master_key, 'singlestore')
-else:
+if not os.path.exists(CREDENTIALS_FILE) or not os.path.exists(SALT_FILE):
     print("Credential files not found.")
     exit()
-    
-# p-2+IBUPzgoeLjgBztO/lLZHHg==;TAq/ujHl/IiSpnDt3iCIBA==:XBiA2TCiUDDouougZKeuiQHPVdUKlAprRkzmg7H5BjoxEt2NjU6IO1voLKcaoQsorWBGt6xRYRsN76DyJw6wpPMI6i4b+0+vXg==
-#api_url = "https://bam-api.res.ibm.com/v2/text/generation?version=2024-01-10"
-api_url = "https://us-south.ml.cloud.ibm.com/ml/v1-beta/generation/text?version=2023-05-29"
 
-if not ibmai_credentials:
-    print("watsonx.ai credentials not provided.")
-    exit()  # Exit the script if credentials are not provided
-else:
-    print("watsonx.ai credentials provided.")
-    ibmai_key = ibmai_credentials.get('api_key')
-    print(f"watsonx.ai API key: {ibmai_key}")
-    print(f"watsonx.ai URL:" + api_url )
+master_password = args.master_password or getpass("Enter master password: ")
+salt = get_salt()
+master_key = derive_key(master_password, salt)
 
-if not openai_credentials:
-    print("watsonx.ai credentials not provided.")
-    exit()  # Exit the script if credentials are not provided
-else:
-    print("openai credentials provided.")
-    openai_key = openai_credentials.get('api_key')
-    print(f"openai API key: {openai_key}")
+# Initialize credentials dictionary
+credentials = {}
 
-################ watsonx.ai section #####################
+# Load credentials based on the ai_type argument
+if args.aitype in ['openai', 'both']:
+    credentials['openai'] = get_credentials(master_key, 'openai')
+    if not credentials['openai']:
+        print("OpenAI credentials not provided.")
+        exit()
+    else:
+        print("OpenAI credentials provided.")
+        print(f"OpenAI API key: {credentials['openai'].get('api_key')}")
+        openai_key = credentials['openai'].get('api_key')
 
-prompt_string="""
-You are a Social Media Analyst! You help in making the comments that user post easier to analyze by categorizing them. Categorize the following comment under post on Instagram of the official Mercedes Benz account into one of the available tags in list_of_tags.
+if args.aitype in ['ibmai', 'both']:
+    credentials['ibmai'] = get_credentials(master_key, 'ibmai')
+    if not credentials['ibmai']:
+        print("watsonx.ai credentials not provided.")
+        exit()
+    else:
+        print("watsonx.ai credentials provided.")
+        watsonx_api_url = "https://us-south.ml.cloud.ibm.com"  # Assuming this is static or configured elsewhere
+        ibmai_key = credentials['ibmai'].get('watsonxai_ibmai_iamkey')
+        ibmai_project = credentials['ibmai'].get('watsonxai_project_id')
+        print(f"watsonx.ai API key: {ibmai_key}")
+        print(f"watsonx.ai URL: {watsonx_api_url}")
+        print(f"watsonx.ai Project ID: {ibmai_project}")
+        print(f"watsonx.ai LLM: {ibmaillm}")
 
-list_of_tags = [
-"positive sentiments towards the brand Mercedes",
-"positive sentiments towards the mentioned model",
-"negative sentiments towards the brand Mercedes",
-"negative sentiments towards the mentioned model",
-"questions or inquiries",
-"personal experience or stories with the brand Mercedes",
-"personal experience or stories with the mentioned model",
-"political statements",
-"geographical statements",
-"miscellaneous or unclear"
-]
+# Load SingleStore credentials if needed for your application, independent of AI type
 
-COMMENT: This is so amazing! It's my dream car
-TAG: positive sentiments towards the mentioned model
+credentials['singlestore'] = get_credentials(master_key, 'singlestore')
 
-COMMENT: Mein größter Traum ist eines Tages für Mercedes zu arbeiten
-TAG: personal experience or stories with the brand Mercedes
-
-COMMENT: TF has happened to MB design team.
-TAG: negative sentiments towards the brand Mercedes
-
-COMMENT: Amazing! Way better than 5 series.
-TAG: positive sentiments towards the mentioned model
-
-COMMENT: Expect more from Mercedes my truck has been getting serviced for 6 months with no one responding!!!!!!
-TAG: questions or inquiries
-
-COMMENT: Why Mercedes why????
-TAG: negative sentiments towards the brand Mercedes
-
-COMMENT:{comment}
-"""
 
 
 ################ watsonx.ai section #####################
+parameters = {
+    GenParams.DECODING_METHOD: "sample",
+    GenParams.MAX_NEW_TOKENS: 100,
+    GenParams.STOP_SEQUENCES: ["\n"],
+    GenParams.TEMPERATURE:0.5,
+    GenParams.REPETITION_PENALTY: 1.2,
+    GenParams.TOP_K: 50,
+    GenParams.TOP_P: 1
+}
 
+model = Model(
+    model_id=model_id, 
+    params=parameters, 
+    credentials={
+        "url": watsonx_api_url,
+        "apikey": ibmai_key
+    },
+    project_id=ibmai_project)
 
-if not singlestore_credentials:
+########### Test Prompt ########
+print("Run Watsonx.ai testing Prompt")
+test_prompt = "Are you ready to work with me today, for our sentimental demo case for ?"
+test_output = model.generate_text(test_prompt)
+print("Test Prompt Output:", test_output)
+
+def get_predictions(prompt, ai_type):
+    if ai_type == 'ibmai':
+        response = model.generate_text(prompt)
+        generated_text = response.strip().split("\n")[0]  # Assuming the first line contains the sentiment tag
+        
+        return generated_text
+
+################ watsonx.ai section #####################
+if not credentials.get('singlestore'):
     print("SingleStore credentials not provided. Skipping database operations.")
-    exit()  # Exit the script if credentials are not provided
 else:
     print("SingleStore credentials provided.")
-    print(f"Server: " + singlestore_credentials.get('hostname'))
-
+    # Access SingleStore credentials from the credentials dictionary
+    singlestore_creds = credentials['singlestore']
+    print(f"Server: {singlestore_creds.get('hostname')}")
+    
     ssl_config = {'ca': 'singlestore_bundle.pem'}
 
     try:
         connection = pymysql.connect(
-            host=singlestore_credentials.get('hostname'),
-            port=int(singlestore_credentials.get('port', 3306)),
-            user=singlestore_credentials.get('username'),
-            password=singlestore_credentials.get('password'),
-            database=singlestore_credentials.get('database'),
+            host=singlestore_creds.get('hostname'),
+            port=int(singlestore_creds.get('port', 3306)),
+            user=singlestore_creds.get('username'),
+            password=singlestore_creds.get('password'),
+            database=singlestore_creds.get('database'),
             ssl=ssl_config
         )
 
@@ -210,12 +199,12 @@ else:
 # Adjusted Main Logic for Sentiment Analysis
 def fetch_comments():
     with connection.cursor() as cursor:
-        cursor.execute("""
+        cursor.execute(f"""
         SELECT c.comment_text, p.topic
         FROM comments AS c
         JOIN posts AS p ON c.post_shortcode = p.post_shortcode
         WHERE CHAR_LENGTH(c.comment_text) > 20 AND CHAR_LENGTH(c.comment_text) < 35
-        LIMIT 30;
+        LIMIT {comment_limit};
         """)
         return cursor.fetchall()
     
@@ -232,32 +221,45 @@ def process_comments(comments, ai_type):
     prompt_template = load_prompt_template()
     openai_params = load_openai_params()
     
-    for comment, topic in comments:
+    for comment, topic in tqdm(comments, desc="Processing comments"):
         # Perform sentiment analysis with TextBlob
         textblob_sentiment = analyze_sentiment_with_textblob(comment)
         
         # Initialize the AI sentiment as empty
-        ai_sentiment = ""
+        openai_sentiment = ""
+        ibmai_sentiment = ""
         
-        if ai_type in ['openai', 'both']:
-            # Format the prompt with the actual manufacturer (topic) and comment
-            prompt = prompt_template.format(manufacturer=topic, comment=comment)
-            # Make the call to the AI model
+        # Format the prompt with the actual manufacturer (topic) and comment
+        prompt = prompt_template.format(manufacturer=topic, comment=comment)
+        
+        if ai_type == 'openai' or ai_type == 'both':
+            # Make the call to the OpenAI model
+            openai.api_key = openai_key
             response = openai.Completion.create(prompt=prompt, **openai_params)
-            # Extract the sentiment response (TAG)
-            ai_sentiment = response.choices[0].text.strip().split("\n")[0]  # Correctly taking the first TAG response
-
+            openai_sentiment = response.choices[0].text.strip().split("\n")[0]
+        
+        if ai_type == 'ibmai' or ai_type == 'both':
+            # Make the call to the IBM Watson model
+            ibmai_sentiment = get_predictions(prompt, 'ibmai')
         
         result = {
             'topic': topic,
-            'comment': comment[:62] + '...' if len(comment) > 65 else comment,  # Truncate long comments
-            'textblob_sentiment': textblob_sentiment,  # Sentiment from TextBlob
-            'openai_sentiment': ai_sentiment  # Sentiment from OpenAI
+            'comment': comment[:62] + '...' if len(comment) > 65 else comment,
+            'textblob_sentiment': textblob_sentiment,
         }
+        
+        if ai_type == 'openai':
+            result['openai_sentiment'] = openai_sentiment
+        elif ai_type == 'ibmai':
+            result['ibmai_sentiment'] = ibmai_sentiment
+        elif ai_type == 'both':
+            result['openai_sentiment'] = openai_sentiment
+            result['ibmai_sentiment'] = ibmai_sentiment
         
         results.append(result)
 
     return pd.DataFrame(results)
+
 
 def display_results(df):
     if not df.empty:
