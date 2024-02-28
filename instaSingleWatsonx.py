@@ -2,38 +2,27 @@ import os
 import re
 import json
 import csv
-import datetime
 from langchain.prompts import PromptTemplate
-from genai.credentials import Credentials
 import os
 from dotenv import load_dotenv
-# Using Generative AI Library
-from genai.model import Model
-from genai.schemas import GenerateParams
-import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
-# Suppress all warnings
-import warnings
-import matplotlib.pyplot as plt
-import seaborn as sns
-from wordcloud import WordCloud
-import datetime
+from ibm_watsonx_ai.foundation_models.utils.enums import ModelTypes
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
+import pandas as pd
 
-warnings.simplefilter("ignore")
+# change this if you want!
+account_name = "mercedesbenz"
 
-# Example usage
-folder_path = 'mercedesbenz'
-output_folder_path = 'mercedesbenz_comments'
-folder_path = 'mercedesbenz_comments'
-# iterate through mercedesbenz_comments_analysed and get all file names
-folder_path = 'mercedesbenz_comments_analysed'
-load_dotenv()
-api_key = os.getenv("GENAI_KEY")
-api_url = os.getenv("GENAI_API")
+# create all the folders that are needed
+raw_data_folder = "0_"+account_name
+extracted_comments_folder = "1_"+account_name+"_comments"
+analysed_comments_folder = "2_"+account_name+"_analysed"
 
+os.makedirs(raw_data_folder, exist_ok=True)
+os.makedirs(extracted_comments_folder, exist_ok=True)
+os.makedirs(analysed_comments_folder, exist_ok=True)
 
 # get a list of all the downloaded posts
 def extract_unique_timestamps_from_folder(folder_path):
@@ -56,12 +45,11 @@ def extract_unique_timestamps_from_folder(folder_path):
 
     return unique_timestamps
 
-
-unique_timestamps = extract_unique_timestamps_from_folder(folder_path)
+# Example usage
+unique_timestamps = extract_unique_timestamps_from_folder(raw_data_folder)
 
 print("Unique Timestamps:")
 print(unique_timestamps)
-
 
 # filter out comments containing non-english characters
 def is_non_english_unicode(ch):
@@ -76,8 +64,6 @@ def emoji_ratio(s):
         return 0
     return sum(is_non_english_unicode(ch) for ch in s) / len(s)
 
-
-
 # Iterate through unique timestamps and extract comments
 # for each timestamp in unique_timestamps, open the comments.json (e.g. 2023-09-03_18-00-32_UTC_comments.json) file and extract "text" of the comment and append to a list that will be stored as a csv file with the timestamp as the filename
 for timestamp in unique_timestamps:
@@ -87,7 +73,7 @@ for timestamp in unique_timestamps:
     extracted_comments = []
     
     filename = f'{timestamp}_comments.json'
-    file_path = os.path.join(folder_path, filename)
+    file_path = os.path.join(raw_data_folder, filename)
     if os.path.exists(file_path):
         with open(file_path, 'r', encoding='utf-8') as json_file:
             data = json.load(json_file)
@@ -100,7 +86,7 @@ for timestamp in unique_timestamps:
                 
 
     # Write extracted comments to a CSV file with timestamp as the filename
-    csv_filename = f'{output_folder_path}/extracted_comments_{timestamp}.csv'
+    csv_filename = f'{extracted_comments_folder}/extracted_comments_{timestamp}.csv'
     with open(csv_filename, 'w', newline='', encoding='utf-8') as csv_file:
         csv_writer = csv.writer(csv_file)
         csv_writer.writerow(['Comment Text'])  # Write header
@@ -109,6 +95,9 @@ for timestamp in unique_timestamps:
 
     print(f'Extracted comments saved in {csv_filename}')
     
+import os
+import pandas as pd
+
 # Count the number of CSV files in the specified folder and the total number of lines in all these files.
 def count_files_and_lines(folder_path):
     """
@@ -132,21 +121,20 @@ def count_files_and_lines(folder_path):
 
     return file_count, total_lines
 
-
-num_files, num_lines = count_files_and_lines(folder_path)
+# folder_path = 'mercedesbenz_comments'
+num_files, num_lines = count_files_and_lines(raw_data_folder)
 print(f"Number of CSV files: {num_files}, Total lines in all files: {num_lines}")
 
-
-prompt_string="""
-You are a Social Media Analyst! You help in making the comments that user post easier to analyze by categorizing them. Categorize the following comment under post on Instagram of the official Mercedes Benz account into one of the available tags in list_of_tags.
+prompt_string = """
+You are a Social Media Analyst! You help in making the comments that user post easier to analyze by categorizing them. Categorize the following comment under post on Instagram of the official #ACCOUNT account into one of the available tags in list_of_tags.
 
 list_of_tags = [
-"positive sentiments towards the brand Mercedes",
+"positive sentiments towards the brand #ACCOUNT",
 "positive sentiments towards the mentioned model",
-"negative sentiments towards the brand Mercedes",
+"negative sentiments towards the brand #ACCOUNT",
 "negative sentiments towards the mentioned model",
 "questions or inquiries",
-"personal experience or stories with the brand Mercedes",
+"personal experience or stories with the brand #ACCOUNT",
 "personal experience or stories with the mentioned model",
 "political statements",
 "geographical statements",
@@ -156,58 +144,66 @@ list_of_tags = [
 COMMENT: This is so amazing! It's my dream car
 TAG: positive sentiments towards the mentioned model
 
-COMMENT: Mein größter Traum ist eines Tages für Mercedes zu arbeiten
-TAG: personal experience or stories with the brand Mercedes
+COMMENT: Mein größter Traum ist eines Tages für #ACCOUNT zu arbeiten
+TAG: personal experience or stories with the brand #ACCOUNT
 
-COMMENT: TF has happened to MB design team.
-TAG: negative sentiments towards the brand Mercedes
+COMMENT: TF has happened to #ACCOUNT design team.
+TAG: negative sentiments towards the brand #ACCOUNT
 
 COMMENT: Amazing! Way better than 5 series.
 TAG: positive sentiments towards the mentioned model
 
-COMMENT: Expect more from Mercedes my truck has been getting serviced for 6 months with no one responding!!!!!!
+COMMENT: Expect more from #ACCOUNT my truck has been getting serviced for 6 months with no one responding!!!!!!
 TAG: questions or inquiries
 
-COMMENT: Why Mercedes why????
-TAG: negative sentiments towards the brand Mercedes
+COMMENT: Why #ACCOUNT why????
+TAG: negative sentiments towards the brand #ACCOUNT
 
 COMMENT:{comment}
-"""
+""".replace("#ACCOUNT", account_name)
 
+load_dotenv()
+api_key = os.getenv("GENAI_KEY")
+api_url = os.getenv("GENAI_API")
+project_id = os.getenv("PROJECT_ID")
 
-creds = Credentials(api_key, api_endpoint=api_url) # credentials object to access the LLM service
+# credentials = Credentials(api_key, api_endpoint=api_url) # credentials object to access the LLM service
 
-# define model type
-MODELTYPE = "ibm/granite-13b-chat-v2"
-# MODELTYPE = "ibm/granite-13b-sft"
-# MODELTYPE = "meta-llama/llama-2-70b-chat"
+credentials = {
+    "url": api_url,
+    "apikey": api_key
+}
 
+from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as GenParams
 
-# Instantiate parameters for text generation
-params = GenerateParams(
-    decoding_method="sample", # use 'greedy' alternatively
-    stop_sequences= ["\n"],
-    max_new_tokens=100,
-    min_new_tokens=1,
-    temperature=0.5,
-    repetition_penalty=1.2,
-    top_k=50,
-    top_p=1,
-)
+model_id = ModelTypes.GRANITE_13B_CHAT_V2
 
+parameters = {
+    GenParams.DECODING_METHOD: "sample",
+    GenParams.MAX_NEW_TOKENS: 100,
+    GenParams.STOP_SEQUENCES: ["\n"],
+    GenParams.TEMPERATURE:0.5,
+    GenParams.REPETITION_PENALTY: 1.2,
+    GenParams.TOP_K: 50,
+    GenParams.TOP_P: 1
+}
+
+from ibm_watsonx_ai.foundation_models import ModelInference
+
+model = ModelInference(
+    model_id=model_id, 
+    params=parameters, 
+    credentials=credentials,
+    project_id=project_id)
+
+model.generate_text("How are you doing today?")
+
+prompt="my love for the S Class started in the 90s 🖤"
 # Instantiate a model proxy object to send your requests
-model = Model(MODELTYPE, params=params, credentials=creds)
+model.generate_text(prompt)
 
-# a helper function to generate text
 def get_completion(prompt, model=model):
-    return model.generate([prompt])[0].generated_text
-
-prompt_template = PromptTemplate.from_template(prompt_string)
-prompt=prompt_template.format(comment="my love for the S Class started in the 90s 🖤")
-
-get_completion(prompt)
-
-
+    return model.generate_text(prompt)
 
 def get_predictions(line):
     prompt_template = PromptTemplate.from_template(prompt_string)
@@ -236,32 +232,32 @@ def process_file(full_path, output_path):
 
 def process_files_in_directory(directory_path, output_path):
     files_to_process = [f for f in os.listdir(directory_path) if os.path.isfile(os.path.join(directory_path, f))]
-    
+    print(f"Processing {len(files_to_process)} files in {directory_path}...")
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(process_file, os.path.join(directory_path, file), output_path): file for file in files_to_process}
         for _ in tqdm(as_completed(futures), total=len(files_to_process), desc="Overall Progress"):
             pass
 
-directory_path = 'mercedesbenz_comments'
-output_path = 'mercedesbenz_comments_analysed'
+# directory_path = 'mercedesbenz_comments'
+# output_path = 'mercedesbenz_comments_analysed'
 
-process_files_in_directory(directory_path, output_path)
+process_files_in_directory(extracted_comments_folder, analysed_comments_folder)
 
 print("Processing completed!")
 
+# iterate through mercedesbenz_comments_analysed and get all file names
 
-
-list_of_analyzed_posts = extract_unique_timestamps_from_folder(folder_path)
+list_of_analyzed_posts = extract_unique_timestamps_from_folder(analysed_comments_folder)
 
 # some helper functions...
 
 list_of_tags = [
-    "positive sentiments towards the brand mercedes",
+    f"positive sentiments towards the brand {account_name}",
     "positive sentiments towards the mentioned model",
-    "negative sentiments towards the brand mercedes",
+    f"negative sentiments towards the brand {account_name}",
     "negative sentiments towards the mentioned model",
     "questions or inquiries",
-    "personal experience or stories with the brand mercedes",
+    f"personal experience or stories with the brand {account_name}",
     "personal experience or stories with the mentioned model",
     "political statements",
     "geographical statements",
@@ -297,13 +293,14 @@ def add_linebreaks(label, char_limit):
     lines.append(' '.join(current_line))
     return '\n'.join(lines)
 
+
 # create one large dataframe with all the comments and their predictions
 
 dataframes = []
 
 for timestamp in list_of_analyzed_posts:
     # Load the data
-    df = pd.read_json("mercedesbenz_comments_analysed/extracted_comments_" + timestamp + ".json")
+    df = pd.read_json(analysed_comments_folder+"/extracted_comments_" + timestamp + ".json")
 
     # Clean the data
     df_cleaned = df.applymap(clean_string)
@@ -321,6 +318,7 @@ for timestamp in list_of_analyzed_posts:
 combined_df = pd.concat(dataframes, ignore_index=True)
 
 combined_df.describe()
+
 # Set the default font family for plots to 'Segoe UI Emoji'
 plt.rcParams['font.family'] = 'Segoe UI Emoji'
 
@@ -341,7 +339,7 @@ def ilustrate_results(list_of_timestamps):
     # Loop through timestamps of analyzed posts
     for timestamp in list_of_timestamps:
         # Load and clean the data
-        df = pd.read_json("mercedesbenz_comments_analysed/extracted_comments_"+timestamp+".json")
+        df = pd.read_json(analysed_comments_folder+"/extracted_comments_"+timestamp+".json")
         df_cleaned = df.applymap(clean_string)
         # Filter rows based on predefined tags
         df_cleaned_2 = df_cleaned[df_cleaned['prediction'].isin(list_of_tags)]
@@ -363,7 +361,7 @@ def ilustrate_results(list_of_timestamps):
 
         try:
             # Attempt to display an image associated with the timestamp
-            img = mpimg.imread("mercedesbenz\\" + timestamp + "_1.jpg")
+            img = mpimg.imread(raw_data_folder+"\\" + timestamp + "_1.jpg")
             # Set up a figure with three subplots
             fig, axarr = plt.subplots(1, 3, figsize=(25, 10))
             # Display the image in the first subplot
@@ -396,7 +394,6 @@ def ilustrate_results(list_of_timestamps):
 list_of_analyzed_posts=list(list_of_analyzed_posts)
 ilustrate_results(list_of_analyzed_posts[:20])
 
-
 # Selecting the required categories
 # Dropping the first row which seems to be a header row in the data
 
@@ -411,8 +408,8 @@ ratios = grouped.div(grouped.sum(axis=1), axis=0)
 
 # Selecting the required categories
 categories = [
-    "negative sentiments towards the brand mercedes",
-    "positive sentiments towards the brand mercedes",
+    f"negative sentiments towards the brand {account_name}",
+    f"positive sentiments towards the brand {account_name}",
     "personal experience or stories with the mentioned model"
 ]
 
@@ -426,11 +423,20 @@ timestamps_negative_brand = top_5_negative_brand.index.tolist()
 timestamps_positive_brand = top_5_positive_brand.index.tolist()
 timestamps_personal_experience_model = top_5_personal_experience_model.index.tolist()
 
-timestamps_negative_brand_str = [ts.strftime('%Y-%m-%d_%H-%M-%S_UTC') for ts in timestamps_negative_brand]
-timestamps_positive_brand_str = [ts.strftime('%Y-%m-%d_%H-%M-%S_UTC') for ts in timestamps_positive_brand]
-timestamps_personal_experience_model_str = [ts.strftime('%Y-%m-%d_%H-%M-%S_UTC') for ts in timestamps_personal_experience_model]
+from datetime import datetime
+
+# Assuming your timestamp strings are in a format like '2024-02-20 12:00:00'
+# Adjust the format string as needed to match your data
+datetime_format = '%Y-%m-%d_%H-%M-%S_UTC'
+
+timestamps_negative_brand_str = [datetime.strptime(ts, datetime_format).strftime('%Y-%m-%d_%H-%M-%S_UTC') for ts in timestamps_negative_brand]
+timestamps_positive_brand_str = [datetime.strptime(ts, datetime_format).strftime('%Y-%m-%d_%H-%M-%S_UTC') for ts in timestamps_positive_brand]
+timestamps_personal_experience_model_str = [datetime.strptime(ts, datetime_format).strftime('%Y-%m-%d_%H-%M-%S_UTC') for ts in timestamps_personal_experience_model]
+
+timestamps_negative_brand
 
 ilustrate_results(timestamps_negative_brand_str)
+
 ilustrate_results(timestamps_positive_brand_str)
 
 df= combined_df
@@ -453,4 +459,51 @@ wordcloud_filtered_red = WordCloud(width=800, height=400, background_color='whit
 plt.figure(figsize=(20, 10))
 plt.imshow(wordcloud_filtered_red, interpolation='bilinear')
 plt.axis("off")
+plt.show()
+
+df= combined_df
+# Preprocessing the timestamp to datetime format
+df['timestamp'] = pd.to_datetime(df['timestamp'], format='%Y-%m-%d_%H-%M-%S_UTC', errors='coerce')
+
+# Let's create the word cloud with a red color scheme.
+# We will use a colormap for red colors.
+# Filtering the data to only include entries with "negative sentiments towards the brand Mercedes"
+positive_sentiments_filter = df['prediction'] == "positive sentiments towards the brand mercedes"
+positive_sentiments_data = df[negative_sentiments_filter]
+
+# Combining all the negative comments into a single string
+text = " ".join(comment for comment in negative_sentiments_data.line)
+
+# Regenerating the word cloud with a red color scheme
+wordcloud_filtered_red = WordCloud(width=800, height=400, background_color='white', colormap='Greens').generate(filtered_text)
+
+# Displaying the word cloud with a red color scheme
+plt.figure(figsize=(20, 10))
+plt.imshow(wordcloud_filtered_red, interpolation='bilinear')
+plt.axis("off")
+plt.show()
+
+# Assigning custom colors to each prediction category
+df= combined_df
+colors = ['red', 'blue', 'green', 'yellow', 'orange', 'purple', 'pink', 'gray', 'cyan', 'brown']
+
+# Creating a color mapping based on the provided categories and colors
+color_mapping = dict(zip(list_of_tags, colors))
+# It seems the variable 'filtered_trend_data' was not correctly defined or stored. Let's redefine it.
+
+# Filtering the dataset to include data only until August 2023
+filtered_trend_data = df[df['timestamp'] < pd.to_datetime('2023-09-01')].groupby(['timestamp', 'prediction']).size().unstack(fill_value=0)
+
+# Applying the custom colors to the trends plot
+plt.figure(figsize=(15, 8))
+for category in list_of_tags:
+    if category in filtered_trend_data.columns:
+        plt.plot(filtered_trend_data.index, filtered_trend_data[category], label=category, color=color_mapping[category])
+
+plt.title("Trends over Time (Up to August 2023) with Custom Colors", fontsize=15)
+plt.xlabel("Date", fontsize=12)
+plt.ylabel("Count", fontsize=12)
+plt.xticks(rotation=45, fontsize=10)
+plt.yticks(fontsize=10)
+plt.legend(title='Predictions', title_fontsize='13', fontsize='10')
 plt.show()

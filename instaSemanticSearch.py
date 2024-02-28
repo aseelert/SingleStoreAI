@@ -14,6 +14,10 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
 import platform  # Import platform module to clear the screen
 from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+from ibm_watsonx_ai.foundation_models.utils.enums import ModelTypes
 
 # Load the model
 model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')

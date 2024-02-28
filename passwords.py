@@ -61,8 +61,8 @@ def main():
     master_password = getpass.getpass("Enter master password: ")
     salt = get_salt()
     master_key = derive_key(master_password, salt)
-    credentials = {}
-
+    credentials = {}  
+    
     try:
         if os.path.exists(CREDENTIALS_FILE):
             encrypted_data = read_encrypted_data(master_key)
@@ -76,9 +76,15 @@ def main():
                 username = input("Enter username for SingleStore: ")
                 password = getpass.getpass("Enter password for SingleStore: ")
                 credentials[args.type] = {'hostname': hostname, 'port': port, 'database': database, 'username': username, 'password': password}
-            elif args.type in ['openai', 'ibmai']:
+            elif args.type == ['openai']:
                 api_key = getpass.getpass(f"Enter API key for {args.type}: ")
                 credentials[args.type] = {'api_key': api_key}
+            elif args.type == ['ibmai']:
+                watsonxai_ibmai_iamkey = getpass.getpass(f"Enter watsonx.ai IAM API Key:")
+                credentials[args.type] = {'watsonxai_ibmai_iamkey': watsonxai_ibmai_iamkey}                
+                watsonxai_project_id = getpass.getpass(f"Enter watsonx.ai Project ID: ")
+                credentials[args.type] = {'watsonxai_project_id': watsonxai_project_id}
+                credentials[args.type] = {'watsonxai_user_apiKey': "apiKey"}                  
             else:
                 username = input(f"Enter username for {args.type}: ")
                 password = getpass.getpass(f"Enter password for {args.type}: ")

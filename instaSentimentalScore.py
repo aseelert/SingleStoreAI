@@ -32,6 +32,12 @@ import matplotlib.image as mpimg
 import warnings
 #import seaborn as sns
 #from wordcloud import WordCloud
+from langchain.prompts import PromptTemplate
+import os
+from dotenv import load_dotenv
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+from ibm_watsonx_ai.foundation_models.utils.enums import ModelTypes
 
 
 
