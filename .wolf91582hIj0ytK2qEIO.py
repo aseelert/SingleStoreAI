@@ -159,7 +159,8 @@ if args.aitype in ['ibmai', 'both']:
         ["watsonx.ai", "URL", watsonx_api_url, ibmai_status]
     ])
 
-
+# Print the credential details in a table format
+print(tabulate(credential_details, headers=["Service", "Detail", "Value", "Loaded"], tablefmt="grid"))
 
 # Load SingleStore credentials if needed for your application, independent of AI type
 
@@ -192,8 +193,6 @@ if args.aitype in ['ibmai', 'both']:
     test_prompt = "Are you ready to work with me today, for our sentimental demo case for ?"
     test_output = model.generate_text(test_prompt)
     print("Test Prompt Output:", test_output)
-    
-    credential_details.extend([["Watsonx.ai Test Prompt", test_prompt, test_output, "N/A"]])
 
     def get_predictions(prompt, ai_type):
         if ai_type == 'ibmai':

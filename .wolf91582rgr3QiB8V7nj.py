@@ -193,7 +193,7 @@ if args.aitype in ['ibmai', 'both']:
     test_output = model.generate_text(test_prompt)
     print("Test Prompt Output:", test_output)
     
-    credential_details.extend([["Watsonx.ai Test Prompt", test_prompt, test_output, "N/A"]])
+    credential_details.extend([["Watsonx.ai Test Prompt", test_prompt, test_output, singlestore_status]])
 
     def get_predictions(prompt, ai_type):
         if ai_type == 'ibmai':

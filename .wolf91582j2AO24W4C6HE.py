@@ -193,7 +193,12 @@ if args.aitype in ['ibmai', 'both']:
     test_output = model.generate_text(test_prompt)
     print("Test Prompt Output:", test_output)
     
-    credential_details.extend([["Watsonx.ai Test Prompt", test_prompt, test_output, "N/A"]])
+    credential_details.extend([
+    ["SingleStore", "Hostname", hostname, singlestore_status],
+    ["SingleStore", "User", user, singlestore_status],
+    ["SingleStore", "Database", database, singlestore_status],
+    ["File", filename, "Exists" if os.path.exists(filename) else "Does Not Exist", file_exists_status]
+])
 
     def get_predictions(prompt, ai_type):
         if ai_type == 'ibmai':

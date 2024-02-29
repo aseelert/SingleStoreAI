@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.fernet import Fernet
 from tabulate import tabulate
 from textblob import TextBlob
-#import nltk
+import nltk
 from langchain.prompts import PromptTemplate
 from dotenv import load_dotenv
 import matplotlib.pyplot as plt
@@ -26,7 +26,7 @@ from ibm_watsonx_ai.foundation_models.utils.enums import ModelTypes, DecodingMet
 from tqdm import tqdm 
 import requests
 
-#nltk.download('punkt')
+nltk.download('punkt')
 
 comment_limit = "30"
 
@@ -42,10 +42,6 @@ args = parser.parse_args()
 
 SALT_FILE = 'salt.key'
 CREDENTIALS_FILE = 'credentials.enc'
-
-# Function to format the loaded status with color
-def format_status(is_provided):
-    return "\033[92m✓\033[0m" if is_provided else "\033[91m✗\033[0m"
 
 def download_file_if_not_exists(url, filename):
     # Check if the file already exists
@@ -65,12 +61,13 @@ def download_file_if_not_exists(url, filename):
             print(f"HTTP Error occurred: {err}")
         except requests.exceptions.RequestException as err:
             print(f"Error downloading the file: {err}")
+    else:
+        print(f"{filename} already exists in the current directory.")
 
 # URL of the file you want to download
 url = "https://portal.singlestore.com/static/ca/singlestore_bundle.pem"
 # The filename to save the downloaded file as
 filename = "singlestore_bundle.pem"
-file_exists_status = format_status(os.path.exists(filename))
 
 # Call the function
 download_file_if_not_exists(url, filename)
@@ -137,29 +134,33 @@ master_key = derive_key(master_password, salt)
 # Initialize credentials dictionary
 credentials = {}
 
-# Initialize a list to hold all credential details
-credential_details = []
+# Initialize a list to hold credential status
+credentials_status = []
 
-# Load credentials based on the ai_type argument and update credential_details
+# Load credentials based on the ai_type argument and update credentials_status
 if args.aitype in ['openai', 'both']:
     openai_credentials = get_credentials(master_key, 'openai')
-    openai_status = format_status(bool(openai_credentials))
-    openai_key = openai_credentials.get('api_key', 'N/A')
-    credential_details.append(["OpenAI", "API Key", openai_key, openai_status])
+    if not openai_credentials:
+        credentials_status.append(["OpenAI", "Not Provided", "\033[91m✗\033[0m"])  # Red cross for not provided
+    else:
+        credentials_status.append(["OpenAI", "Provided", "\033[92m✓\033[0m"])  # Green check mark for provided
+        openai_key = openai_credentials.get('api_key')
 
 if args.aitype in ['ibmai', 'both']:
     ibmai_credentials = get_credentials(master_key, 'ibmai')
-    ibmai_status = format_status(bool(ibmai_credentials))
-    ibmai_key = ibmai_credentials.get('watsonxai_ibmai_iamkey', 'N/A')
-    ibmai_project = ibmai_credentials.get('watsonxai_project_id', 'N/A')
-    watsonx_api_url = "https://us-south.ml.cloud.ibm.com"  # Assuming this is static or configured elsewhere
-    credential_details.extend([
-        ["watsonx.ai", "API Key", ibmai_key, ibmai_status],
-        ["watsonx.ai", "Project ID", ibmai_project, ibmai_status],
-        ["watsonx.ai", "URL", watsonx_api_url, ibmai_status]
-    ])
+    if not ibmai_credentials:
+        credentials_status.append(["watsonx.ai", "Not Provided", "\033[91m✗\033[0m"])
+    else:
+        credentials_status.append(["watsonx.ai", "Provided", "\033[92m✓\033[0m"])
+        watsonx_api_url = "https://us-south.ml.cloud.ibm.com"
+        ibmai_key = ibmai_credentials.get('watsonxai_ibmai_iamkey')
+        ibmai_project = ibmai_credentials.get('watsonxai_project_id')
+        credentials_status.append(["watsonx.ai", "Provided", "\033[92m✓\033[0m"])
+        credentials_status.append(["watsonx.ai", "Provided", "\033[92m✓\033[0m"])
+        credentials_status.append(["watsonx.ai", "Provided", "\033[92m✓\033[0m"])
 
-
+# Print the credentials status in a table format
+print(tabulate(credentials_status, headers=["Service", "Status", "Loaded"], tablefmt="grid"))
 
 # Load SingleStore credentials if needed for your application, independent of AI type
 
@@ -192,8 +193,6 @@ if args.aitype in ['ibmai', 'both']:
     test_prompt = "Are you ready to work with me today, for our sentimental demo case for ?"
     test_output = model.generate_text(test_prompt)
     print("Test Prompt Output:", test_output)
-    
-    credential_details.extend([["Watsonx.ai Test Prompt", test_prompt, test_output, "N/A"]])
 
     def get_predictions(prompt, ai_type):
         if ai_type == 'ibmai':
@@ -203,33 +202,13 @@ if args.aitype in ['ibmai', 'both']:
             return generated_text
 
 ################ watsonx.ai section #####################
-
-# Load SingleStore credentials and check their provision status
-singlestore_credentials = credentials.get('singlestore', {})
-singlestore_status = format_status(bool(singlestore_credentials))
-hostname = singlestore_credentials.get('hostname', 'N/A')
-user = singlestore_credentials.get('username', 'N/A')
-database = singlestore_credentials.get('database', 'N/A')
-
-# Append SingleStore credential details to the credential_details list
-credential_details.extend([
-    ["SingleStore", "Hostname", hostname, singlestore_status],
-    ["SingleStore", "User", user, singlestore_status],
-    ["SingleStore", "Database", database, singlestore_status],
-    ["File", filename, "Exists" if os.path.exists(filename) else "Does Not Exist", file_exists_status]
-])
-
-# Print the updated credential details in a table format
-print(tabulate(credential_details, headers=["Service/Resource", "Detail", "Value", "Status/Loaded"], tablefmt="grid"))
-
-
 if not credentials.get('singlestore'):
     print("SingleStore credentials not provided. Skipping database operations.")
 else:
-    #print("SingleStore credentials provided.")
+    print("SingleStore credentials provided.")
     # Access SingleStore credentials from the credentials dictionary
     singlestore_creds = credentials['singlestore']
-    #print(f"Server: {singlestore_creds.get('hostname')}")
+    print(f"Server: {singlestore_creds.get('hostname')}")
     
     ssl_config = {'ca': 'singlestore_bundle.pem'}
 
