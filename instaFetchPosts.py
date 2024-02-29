@@ -14,8 +14,8 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
 from sentence_transformers import SentenceTransformer
 import pandas as pd
-from pandarallel import pandarallel
-pandarallel.initialize(progress_bar=True)
+from concurrent.futures import ThreadPoolExecutor
+
 
 # Load the model
 minilm_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
@@ -44,6 +44,23 @@ master_password = None
 master_key = None
 openai_credentials = {}
 singlestore_credentials = {}
+
+# Function to generate embeddings in parallel
+def generate_embeddings_parallel(comments):
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        # Submit tasks to the executor
+        future_to_comment = {executor.submit(generate_minilm_embeddings, comment.text): comment for comment in comments}
+        
+        for future in concurrent.futures.as_completed(future_to_comment):
+            comment = future_to_comment[future]
+            try:
+                # Retrieve the result
+                embedding = future.result()
+                # Process the embedding as needed, e.g., append to comment_data
+                comment_data.append((comment.shortcode, comment.owner.username, comment.text, comment.created_at_utc.isoformat(), None, embedding))
+            except Exception as exc:
+                print(f'Comment {comment.text} generated an exception: {exc}')
+
 
 def get_salt():
     """Retrieve or generate a salt for key derivation."""
