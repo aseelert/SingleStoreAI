@@ -24,6 +24,7 @@ from ibm_watsonx_ai.foundation_models import Model
 from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as GenParams
 from ibm_watsonx_ai.foundation_models.utils.enums import ModelTypes, DecodingMethods
 from tqdm import tqdm 
+import requests
 
 nltk.download('punkt')
 
@@ -41,6 +42,35 @@ args = parser.parse_args()
 
 SALT_FILE = 'salt.key'
 CREDENTIALS_FILE = 'credentials.enc'
+
+def download_file_if_not_exists(url, filename):
+    # Check if the file already exists
+    if not os.path.exists(filename):
+        print(f"{filename} not found. Downloading from {url}")
+        try:
+            # Send a GET request to the URL
+            response = requests.get(url)
+            # Raise an HTTPError if the response was unsuccessful
+            response.raise_for_status()
+            
+            # Write the content of the response to a file
+            with open(filename, 'wb') as f:
+                f.write(response.content)
+            print(f"{filename} has been downloaded.")
+        except requests.exceptions.HTTPError as err:
+            print(f"HTTP Error occurred: {err}")
+        except requests.exceptions.RequestException as err:
+            print(f"Error downloading the file: {err}")
+    else:
+        print(f"{filename} already exists in the current directory.")
+
+# URL of the file you want to download
+url = "https://portal.singlestore.com/static/ca/singlestore_bundle.pem"
+# The filename to save the downloaded file as
+filename = "singlestore_bundle.pem"
+
+# Call the function
+download_file_if_not_exists(url, filename)
 
 def analyze_sentiment_with_textblob(comment):
     analysis = TextBlob(comment)
@@ -135,39 +165,39 @@ if args.aitype in ['ibmai', 'both']:
 credentials['singlestore'] = get_credentials(master_key, 'singlestore')
 
 
+if args.aitype in ['ibmai', 'both']:
+    ################ watsonx.ai section #####################
+    parameters = {
+        GenParams.DECODING_METHOD: "sample",
+        GenParams.MAX_NEW_TOKENS: 100,
+        GenParams.STOP_SEQUENCES: ["\n"],
+        GenParams.TEMPERATURE:0.5,
+        GenParams.REPETITION_PENALTY: 1.2,
+        GenParams.TOP_K: 50,
+        GenParams.TOP_P: 1
+    }
 
-################ watsonx.ai section #####################
-parameters = {
-    GenParams.DECODING_METHOD: "sample",
-    GenParams.MAX_NEW_TOKENS: 100,
-    GenParams.STOP_SEQUENCES: ["\n"],
-    GenParams.TEMPERATURE:0.5,
-    GenParams.REPETITION_PENALTY: 1.2,
-    GenParams.TOP_K: 50,
-    GenParams.TOP_P: 1
-}
+    model = Model(
+        model_id=model_id, 
+        params=parameters, 
+        credentials={
+            "url": watsonx_api_url,
+            "apikey": ibmai_key
+        },
+        project_id=ibmai_project)
 
-model = Model(
-    model_id=model_id, 
-    params=parameters, 
-    credentials={
-        "url": watsonx_api_url,
-        "apikey": ibmai_key
-    },
-    project_id=ibmai_project)
+    ########### Test Prompt ########
+    print("Run Watsonx.ai testing Prompt")
+    test_prompt = "Are you ready to work with me today, for our sentimental demo case for ?"
+    test_output = model.generate_text(test_prompt)
+    print("Test Prompt Output:", test_output)
 
-########### Test Prompt ########
-print("Run Watsonx.ai testing Prompt")
-test_prompt = "Are you ready to work with me today, for our sentimental demo case for ?"
-test_output = model.generate_text(test_prompt)
-print("Test Prompt Output:", test_output)
-
-def get_predictions(prompt, ai_type):
-    if ai_type == 'ibmai':
-        response = model.generate_text(prompt)
-        generated_text = response.strip().split("\n")[0]  # Assuming the first line contains the sentiment tag
-        
-        return generated_text
+    def get_predictions(prompt, ai_type):
+        if ai_type == 'ibmai':
+            response = model.generate_text(prompt)
+            generated_text = response.strip().split("\n")[0]  # Assuming the first line contains the sentiment tag
+            
+            return generated_text
 
 ################ watsonx.ai section #####################
 if not credentials.get('singlestore'):

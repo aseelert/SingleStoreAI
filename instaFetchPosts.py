@@ -13,6 +13,9 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
 from sentence_transformers import SentenceTransformer
+import pandas as pd
+from pandarallel import pandarallel
+pandarallel.initialize(progress_bar=True)
 
 # Load the model
 minilm_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
