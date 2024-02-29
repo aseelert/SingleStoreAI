@@ -270,7 +270,6 @@ def load_prompt_template():
 def load_openai_params():
     with open('openai_params.json', 'r') as file:
         return json.load(file)
-
     
 def process_comments(comments, ai_type):
     results = []

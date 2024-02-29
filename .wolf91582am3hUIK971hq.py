@@ -271,6 +271,35 @@ def load_openai_params():
     with open('openai_params.json', 'r') as file:
         return json.load(file)
 
+def process_comment(comment, topic, ai_type):
+    # Perform sentiment analysis with TextBlob
+    textblob_sentiment = analyze_sentiment_with_textblob(comment)
+    
+    # Initialize the AI sentiment as empty
+    openai_sentiment = ""
+    ibmai_sentiment = ""
+    
+    # Format the prompt with the actual manufacturer (topic) and comment
+    prompt = prompt_template.format(manufacturer=topic, comment=comment)
+    
+    if ai_type == 'openai' or ai_type == 'both':
+        # Make the call to the OpenAI model
+        openai.api_key = openai_key
+        response = openai.Completion.create(prompt=prompt, **openai_params)
+        openai_sentiment = response.choices[0].text.strip().split("\n")[0]
+    
+    if ai_type == 'ibmai' or ai_type == 'both':
+        # Make the call to the IBM Watson model
+        ibmai_sentiment = get_predictions(prompt, 'ibmai')
+    
+    return {
+        'topic': topic,
+        'comment': comment[:62] + '...' if len(comment) > 65 else comment,
+        'textblob_sentiment': textblob_sentiment,
+        'openai_sentiment': openai_sentiment,
+        'ibmai_sentiment': ibmai_sentiment
+    }
+
     
 def process_comments(comments, ai_type):
     results = []

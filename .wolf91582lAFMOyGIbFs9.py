@@ -271,49 +271,50 @@ def load_openai_params():
     with open('openai_params.json', 'r') as file:
         return json.load(file)
 
+def process_comment(comment, topic, ai_type):
+    # Perform sentiment analysis with TextBlob
+    textblob_sentiment = analyze_sentiment_with_textblob(comment)
+    
+    # Initialize the AI sentiment as empty
+    openai_sentiment = ""
+    ibmai_sentiment = ""
+    
+    # Format the prompt with the actual manufacturer (topic) and comment
+    prompt = prompt_template.format(manufacturer=topic, comment=comment)
+    
+    if ai_type == 'openai' or ai_type == 'both':
+        # Make the call to the OpenAI model
+        openai.api_key = openai_key
+        response = openai.Completion.create(prompt=prompt, **openai_params)
+        openai_sentiment = response.choices[0].text.strip().split("\n")[0]
+    
+    if ai_type == 'ibmai' or ai_type == 'both':
+        # Make the call to the IBM Watson model
+        ibmai_sentiment = get_predictions(prompt, 'ibmai')
+    
+    return {
+        'topic': topic,
+        'comment': comment[:62] + '...' if len(comment) > 65 else comment,
+        'textblob_sentiment': textblob_sentiment,
+        'openai_sentiment': openai_sentiment,
+        'ibmai_sentiment': ibmai_sentiment
+    }
+
     
 def process_comments(comments, ai_type):
     results = []
     prompt_template = load_prompt_template()
     openai_params = load_openai_params()
     
-    for comment, topic in tqdm(comments, desc="Processing comments"):
-        # Perform sentiment analysis with TextBlob
-        textblob_sentiment = analyze_sentiment_with_textblob(comment)
+    # Prepare for parallel execution
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        # Submit tasks to the executor
+        future_to_comment = {executor.submit(process_comment, comment, topic, ai_type): (comment, topic) for comment, topic in comments}
         
-        # Initialize the AI sentiment as empty
-        openai_sentiment = ""
-        ibmai_sentiment = ""
-        
-        # Format the prompt with the actual manufacturer (topic) and comment
-        prompt = prompt_template.format(manufacturer=topic, comment=comment)
-        
-        if ai_type == 'openai' or ai_type == 'both':
-            # Make the call to the OpenAI model
-            openai.api_key = openai_key
-            response = openai.Completion.create(prompt=prompt, **openai_params)
-            openai_sentiment = response.choices[0].text.strip().split("\n")[0]
-        
-        if ai_type == 'ibmai' or ai_type == 'both':
-            # Make the call to the IBM Watson model
-            ibmai_sentiment = get_predictions(prompt, 'ibmai')
-        
-        result = {
-            'topic': topic,
-            'comment': comment[:62] + '...' if len(comment) > 65 else comment,
-            'textblob_sentiment': textblob_sentiment,
-        }
-        
-        if ai_type == 'openai':
-            result['openai_sentiment'] = openai_sentiment
-        elif ai_type == 'ibmai':
-            result['ibmai_sentiment'] = ibmai_sentiment
-        elif ai_type == 'both':
-            result['openai_sentiment'] = openai_sentiment
-            result['ibmai_sentiment'] = ibmai_sentiment
-        
-        results.append(result)
-
+        for future in as_completed(future_to_comment):
+            result = future.result()
+            results.append(result)
+    
     return pd.DataFrame(results)
 
 
